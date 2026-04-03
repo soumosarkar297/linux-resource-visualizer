@@ -89,10 +89,14 @@ print-bar() {
 }
 
 visualize-data() {
+  local now
+  printf -v now '%(%Y-%m-%dT%H:%M:%S%z)T'
+  
+  echo "CPU Usage on $HOSTNAME - $now"
+
   for key in "${!current[@]}"; do
     print-bar "$key"
   done
-  echo
 }
 
 cleanup() {
