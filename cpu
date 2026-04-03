@@ -7,8 +7,28 @@
 # Email: soumosarkar.official@gmail.com
 # ===================================== #
 
+
 declare current=()
 declare previous=()
+
+declare BAR_CHAR='|'
+declare EMPTY_CHAR=' '
+declare BAR_LENGTH=50
+
+if [[ -z $NO_COLOR ]]; then
+  COLOR1=$'\e[31m'
+  COLOR2=$'\e[35m'
+  COLOR3=$'\e[36m'
+  DIM=$'\e[2m'
+  RST=$'\e[0m'
+else
+  COLOR1=
+  COLOR2=
+  COLOR3=
+  DIM=
+  RST=
+fi
+
 
 # copy the data from the current current into the previous array
 copy-data() {
@@ -69,34 +89,31 @@ print-bar() {
   local perc=$int.$frac
 
 
-  local bar_char='|'
-  local empty_char=' '
-  local length=50
-
-  local num_bars=$(( usage * length / 1000 ))
+  local num_bars=$(( usage * BAR_LENGTH / 1000 ))
 
   local i
   local s='['
   for ((i = 0; i < num_bars; i++)); do
-    s+=$bar_char
+    s+=$COLOR1$BAR_CHAR$RST
   done
-  for ((i = num_bars; i < length; i++)); do
-    s+=$empty_char
+  for ((i = num_bars; i < BAR_LENGTH; i++)); do
+    s+=$EMPTY_CHAR
   done
   s+=']'
 
-  echo "$s cpu$key ($perc%)"
+  echo "$s ${COLOR2}cpu$key${RST} ${COLOR3}($perc%)${RST}"
 }
 
 visualize-data() {
-  local now
-  printf -v now '%(%Y-%m-%dT%H:%M:%S%z)T'
+  echo "${DIM}CPU Usage on ${COLOR3}$HOSTNAME${RST}"
   
-  echo "CPU Usage on $HOSTNAME - $now"
-
   for key in "${!current[@]}"; do
     print-bar "$key"
   done
+
+  local now
+  printf -v now '%(%Y-%m-%dT%H:%M:%S%z)T'
+  echo "$DIM$now$RST"
 }
 
 cleanup() {
