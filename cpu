@@ -8,12 +8,13 @@
 # ===================================== #
 
 
-declare current=()
-declare previous=()
+CURRENT=()
+PREVIOUS=()
+ALL_CPUS=()
 
-declare BAR_CHAR='|'
-declare EMPTY_CHAR=' '
-declare BAR_LENGTH=50
+BAR_CHAR='|'
+EMPTY_CHAR=' '
+BAR_LENGTH=30
 
 if [[ -z $NO_COLOR ]]; then
   COLOR1=$'\e[31m'
@@ -30,23 +31,33 @@ else
 fi
 
 
-# copy the data from the current current into the previous array
+# copy the data from the current array into the previous array
 copy-data() {
-  previous=()
+  PREVIOUS=()
 
   local key value
 
-  for key in "${!current[@]}";
+  for key in "${!CURRENT[@]}";
   do
-    value=${current[$key]}
-    previous[$key]=$value
+    value=${CURRENT[$key]}
+    PREVIOUS[$key]=$value
   done
   
+}
+
+read_all_cpus() {
+  ALL_CPUS=(/sys/devices/system/cpu/cpu[0-9]*)
+  ALL_CPUS=( "${ALL_CPUS[@]##*/cpu}" )
 }
 
 read_proc() {
   local key user nice system idle iowait
   local irq softirq steal guest guest_nice 
+
+  CURRENT=()
+  for key in "${ALL_CPUS[@]}"; do
+    CURRENT[$key]=
+  done
 
   local busy value num
 
@@ -67,7 +78,7 @@ read_proc() {
 
       value="$busy $idle"
 
-      current[$num]=$value
+      CURRENT[$num]=$value
   done < /proc/stat
 }
 
@@ -75,19 +86,29 @@ print-bar() {
   local key=$1
 
   local busy1 idle1 busy2 idle2
-  read -r busy1 idle1 <<< "${previous[$key]}"
-  read -r busy2 idle2 <<< "${current[$key]}"
+  read -r busy1 idle1 <<< "${PREVIOUS[$key]}"
+  read -r busy2 idle2 <<< "${CURRENT[$key]}"
 
-  local busy=$(( busy2 - busy1 ))
-  local idle=$(( idle2 - idle1))
+  # check for offline cpu
+  local usage online
+  if [[ -z $busy1 || -z $busy2 ]]; then
+    # offline CPU
+    usage=0
+    online=
+  else
+    # online CPU
+    local busy=$(( busy2 - busy1 ))
+    local idle=$(( idle2 - idle1))
+    local total=$(( busy + idle ))
 
-  local total=$(( busy + idle ))
-  local usage=$(( 1000 * busy / total ))
+    usage=$(( 1000 * busy / total ))
+    online=1
+  fi
+
 
   local int=$(( usage / 10 ))
   local frac=$(( usage % 10 ))
   local perc=$int.$frac
-
 
   local num_bars=$(( usage * BAR_LENGTH / 1000 ))
 
@@ -101,19 +122,47 @@ print-bar() {
   done
   s+=']'
 
-  echo "$s ${COLOR2}cpu$key${RST} ${COLOR3}($perc%)${RST}"
+  local state
+  if [[ -n $online ]]; then
+    state=${COLOR3}$perc%${RST}
+  else
+    state=${DIM}offline${RST}
+  fi
+
+  local prefix=""
+  local suffix=""
+  if [[ -z $online ]]; then
+    prefix=$DIM
+    suffix=$RST
+  fi
+
+  echo "${prefix}$s ${COLOR2}cpu$key${RST} $state${suffix}"
 }
 
 visualize-data() {
   echo "${DIM}CPU Usage on ${COLOR3}$HOSTNAME${RST}"
   
-  for key in "${!current[@]}"; do
+  for key in "${!CURRENT[@]}"; do
     print-bar "$key"
   done
 
   local now
   printf -v now '%(%Y-%m-%dT%H:%M:%S%z)T'
   echo "$DIM$now$RST"
+}
+
+update-window-size() {
+  if [[ -n $COLUMNS ]]; then
+    # figure out how much buffer room is needed
+    local cpus=( "${!CURRENT[@]}" )
+    local highest_cpu=${cpus[-1]}
+
+    # "[]" + " cpu" + num + " (offline)"
+    local i=$(( 2 + 4 + ${#highest_cpu} + 10 ))
+
+    BAR_LENGTH=$(( COLUMNS - i))
+  fi
+
 }
 
 cleanup() {
@@ -123,15 +172,21 @@ cleanup() {
 }
 
 main() {
+  shopt -s checkwinsize
+
+  read_all_cpus
   read_proc
   echo 'waiting for data...'
   sleep 1
 
   trap cleanup EXIT
+  trap update-window-size WINCH
 
   printf '\e[?1049h' # enable alternate buffer
   printf '\e[?25l' # hide the cursor
   printf '\e[H' # move the cursor home
+
+  update-window-size
 
   local s
   while true; do
